@@ -67,7 +67,8 @@
 
       ////
       //// allow / deny: Specify the lists of ROS 2 interfaces that are allowed or denied to be routed over Zenoh.
-      ////               Each element of the lists is a regular expression that must match the full interface name.
+      ////               Each element of the lists is a regular expression that must match the full interface name,
+      ////               or Node name in case of "nodes" element.
       ////               You cannot set both 'allow' and 'deny' in the same configuration.
       ////               If neither 'allow' nor 'deny' are set, all interfaces are allowed.
       ////               Use 'allow' to allow only the specified interfaces. If an interface type is set to an empty list
@@ -81,6 +82,7 @@
       //   service_clients: [],
       //   action_servers: [".*/rotate_absolute"],
       //   action_clients: [],
+      //   nodes: ["*"],
       // },
       // deny: {
       //   publishers: ["/rosout", "/parameter_events"],
@@ -89,6 +91,7 @@
       //   service_clients: [".*/set_parameters"],
       //   action_servers: [],
       //   action_clients: [],
+      //   nodes: ["zenoh_bridge_ros2dds"],     // Note: in case you run several bridges in the same Domain (not recommended), deny other bridges to avoid loops
       // },
 
       ////

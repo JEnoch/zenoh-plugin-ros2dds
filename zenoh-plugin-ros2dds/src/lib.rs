@@ -485,7 +485,7 @@ impl ROS2PluginRuntime {
                 evt = discovery_rcv.recv_async() => {
                     match evt {
                         Ok(evt) => {
-                            if self.is_allowed(&evt) {
+                            if evt.is_allowed(self.config.as_ref()) {
                                 tracing::info!("{evt} - Allowed");
                                 // pass ROS2DiscoveryEvent to RoutesMgr
                                 if let Err(e) = routes_mgr.on_ros_discovery_event(evt).await {
@@ -524,7 +524,7 @@ impl ROS2PluginRuntime {
                                         // parse it and pass ROS2AnnouncementEvent to RoutesMgr
                                         match self.parse_announcement_event(ke, &remaining.as_str()[..3], evt.kind()) {
                                             Ok(evt) => {
-                                                if self.is_announcement_allowed(&evt) {
+                                                if evt.is_allowed(self.config.as_ref()) {
                                                     tracing::info!("Remote bridge {zenoh_id} {evt} - Allowed");
                                                     routes_mgr.on_ros_announcement_event(evt).await
                                                         .unwrap_or_else(|e| tracing::warn!("Error treating announcement event: {e}"));
@@ -663,67 +663,73 @@ impl ROS2PluginRuntime {
         }
     }
 
-    fn is_allowed(&self, evt: &ROS2DiscoveryEvent) -> bool {
-        if let Some(allowance) = &self.config.allowance {
-            use ROS2DiscoveryEvent::*;
-            match evt {
-                DiscoveredMsgPub(_, iface) | UndiscoveredMsgPub(_, iface) => {
-                    allowance.is_publisher_allowed(&iface.name)
-                }
-                DiscoveredMsgSub(_, iface) | UndiscoveredMsgSub(_, iface) => {
-                    allowance.is_subscriber_allowed(&iface.name)
-                }
-                DiscoveredServiceSrv(_, iface) | UndiscoveredServiceSrv(_, iface) => {
-                    allowance.is_service_srv_allowed(&iface.name)
-                }
-                DiscoveredServiceCli(_, iface) | UndiscoveredServiceCli(_, iface) => {
-                    allowance.is_service_cli_allowed(&iface.name)
-                }
-                DiscoveredActionSrv(_, iface) | UndiscoveredActionSrv(_, iface) => {
-                    allowance.is_action_srv_allowed(&iface.name)
-                }
-                DiscoveredActionCli(_, iface) | UndiscoveredActionCli(_, iface) => {
-                    allowance.is_action_cli_allowed(&iface.name)
-                }
-            }
-        } else {
-            // no allow/deny configured => allow all
-            true
-        }
-    }
+    // fn is_allowed(&self, evt: &ROS2DiscoveryEvent) -> bool {
+    //     if let Some(allowance) = &self.config.allowance {
+    //         use ROS2DiscoveryEvent::*;
+    //         match evt {
+    //             DiscoveredMsgPub(node, iface) | UndiscoveredMsgPub(node, iface) => {
+    //                 allowance.is_node_allowed(node) ||
+    //                 allowance.is_publisher_allowed(&iface.name)
+    //             }
+    //             DiscoveredMsgSub(node, iface) | UndiscoveredMsgSub(node, iface) => {
+    //                 allowance.is_node_allowed(node) ||
+    //                 allowance.is_subscriber_allowed(&iface.name)
+    //             }
+    //             DiscoveredServiceSrv(node, iface) | UndiscoveredServiceSrv(node, iface) => {
+    //                 allowance.is_node_allowed(node) ||
+    //                 allowance.is_service_srv_allowed(&iface.name)
+    //             }
+    //             DiscoveredServiceCli(node, iface) | UndiscoveredServiceCli(node, iface) => {
+    //                 allowance.is_node_allowed(node) ||
+    //                 allowance.is_service_cli_allowed(&iface.name)
+    //             }
+    //             DiscoveredActionSrv(node, iface) | UndiscoveredActionSrv(node, iface) => {
+    //                 allowance.is_node_allowed(node) ||
+    //                 allowance.is_action_srv_allowed(&iface.name)
+    //             }
+    //             DiscoveredActionCli(node, iface) | UndiscoveredActionCli(node, iface) => {
+    //                 allowance.is_node_allowed(node) ||
+    //                 allowance.is_action_cli_allowed(&iface.name)
+    //             }
+    //         }
+    //     } else {
+    //         // no allow/deny configured => allow all
+    //         true
+    //     }
+    // }
 
-    // Check if a remote announcement by another bridge is allowed, depending on the matching entity allowance in config.
-    // E.g. a remote announcement of a Publisher on /abc is allowed only if a Subscriber on /abc is allowed in the local config.
-    fn is_announcement_allowed(&self, evt: &ROS2AnnouncementEvent) -> bool {
-        if let Some(allowance) = &self.config.allowance {
-            use ROS2AnnouncementEvent::*;
-            match evt {
-                AnnouncedMsgPub { zenoh_key_expr, .. } | RetiredMsgPub { zenoh_key_expr, .. } => {
-                    allowance
-                        .is_subscriber_allowed(&key_expr_to_ros2_name(zenoh_key_expr, &self.config))
-                }
-                AnnouncedMsgSub { zenoh_key_expr, .. } | RetiredMsgSub { zenoh_key_expr, .. } => {
-                    allowance
-                        .is_publisher_allowed(&key_expr_to_ros2_name(zenoh_key_expr, &self.config))
-                }
-                AnnouncedServiceSrv { zenoh_key_expr, .. }
-                | RetiredServiceSrv { zenoh_key_expr, .. } => allowance
-                    .is_service_cli_allowed(&key_expr_to_ros2_name(zenoh_key_expr, &self.config)),
-                AnnouncedServiceCli { zenoh_key_expr, .. }
-                | RetiredServiceCli { zenoh_key_expr, .. } => allowance
-                    .is_service_srv_allowed(&key_expr_to_ros2_name(zenoh_key_expr, &self.config)),
-                AnnouncedActionSrv { zenoh_key_expr, .. }
-                | RetiredActionSrv { zenoh_key_expr, .. } => allowance
-                    .is_action_cli_allowed(&key_expr_to_ros2_name(zenoh_key_expr, &self.config)),
-                AnnouncedActionCli { zenoh_key_expr, .. }
-                | RetiredActionCli { zenoh_key_expr, .. } => allowance
-                    .is_action_srv_allowed(&key_expr_to_ros2_name(zenoh_key_expr, &self.config)),
-            }
-        } else {
-            // no allow/deny configured => allow all
-            true
-        }
-    }
+    // // Check if a remote announcement by another bridge is allowed, depending on the matching entity allowance in config.
+    // // E.g. a remote announcement of a Publisher on /abc is allowed only if a Subscriber on /abc is allowed in the local config.
+    // fn is_announcement_allowed(&self, evt: &ROS2AnnouncementEvent) -> bool {
+    //     if let Some(allowance) = &self.config.allowance {
+    //         use ROS2AnnouncementEvent::*;
+    //         match evt {
+    //             AnnouncedMsgPub { zenoh_key_expr, .. } | RetiredMsgPub { zenoh_key_expr, .. } => {
+    //                 allowance
+    //                     .is_subscriber_allowed(&key_expr_to_ros2_name(zenoh_key_expr, &self.config))
+    //             }
+    //             AnnouncedMsgSub { zenoh_key_expr, .. } | RetiredMsgSub { zenoh_key_expr, .. } => {
+    //                 allowance
+    //                     .is_publisher_allowed(&key_expr_to_ros2_name(zenoh_key_expr, &self.config))
+    //             }
+    //             AnnouncedServiceSrv { zenoh_key_expr, .. }
+    //             | RetiredServiceSrv { zenoh_key_expr, .. } => allowance
+    //                 .is_service_cli_allowed(&key_expr_to_ros2_name(zenoh_key_expr, &self.config)),
+    //             AnnouncedServiceCli { zenoh_key_expr, .. }
+    //             | RetiredServiceCli { zenoh_key_expr, .. } => allowance
+    //                 .is_service_srv_allowed(&key_expr_to_ros2_name(zenoh_key_expr, &self.config)),
+    //             AnnouncedActionSrv { zenoh_key_expr, .. }
+    //             | RetiredActionSrv { zenoh_key_expr, .. } => allowance
+    //                 .is_action_cli_allowed(&key_expr_to_ros2_name(zenoh_key_expr, &self.config)),
+    //             AnnouncedActionCli { zenoh_key_expr, .. }
+    //             | RetiredActionCli { zenoh_key_expr, .. } => allowance
+    //                 .is_action_srv_allowed(&key_expr_to_ros2_name(zenoh_key_expr, &self.config)),
+    //         }
+    //     } else {
+    //         // no allow/deny configured => allow all
+    //         true
+    //     }
+    // }
 
     async fn treat_admin_query(&self, query: &Query) {
         let query_ke = query.key_expr();

@@ -244,6 +244,13 @@ pub enum Allowance {
 }
 
 impl Allowance {
+    pub fn is_allow_by_default(&self) -> bool {
+        match self {
+            Allowance::Allow(_) => false,
+            Allowance::Deny(_) => true,
+        }
+    }
+
     pub fn is_publisher_allowed(&self, name: &str) -> bool {
         use Allowance::*;
         match self {
@@ -339,6 +346,22 @@ impl Allowance {
                 .unwrap_or(true),
         }
     }
+
+    pub fn is_node_allowed(&self, name: &str) -> bool {
+        use Allowance::*;
+        match self {
+            Allow(r) => r
+                .nodes
+                .as_ref()
+                .map(|re| re.is_match(name))
+                .unwrap_or(false),
+            Deny(r) => r
+                .nodes
+                .as_ref()
+                .map(|re| !re.is_match(name))
+                .unwrap_or(true),
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Default, Serialize)]
@@ -385,6 +408,13 @@ pub struct ROS2InterfacesRegex {
         skip_serializing_if = "Option::is_none"
     )]
     pub action_clients: Option<Regex>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_regex",
+        serialize_with = "serialize_regex",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub nodes: Option<Regex>,
 }
 
 fn default_namespace() -> String {
@@ -731,7 +761,8 @@ mod tests {
                     "subscribers": [],
                     "service_servers": [".*"],
                     "action_servers": [".*/rotate_absolute"],
-                    "action_clients": [ "" ]
+                    "action_clients": [ "" ],
+                    "nodes": [ "some_node" ]
                 }
             }"#,
         )
@@ -747,6 +778,7 @@ mod tests {
                 service_clients: None,
                 action_servers: Some(_),
                 action_clients: Some(_),
+                nodes: Some(_)
             })
         ));
 
@@ -786,6 +818,9 @@ mod tests {
         assert!(!allow.is_action_cli_allowed("/cmd_vel"));
         assert!(!allow.is_action_cli_allowed("/some_pseudo_random_name"));
 
+        assert!(allow.is_node_allowed("some_node"));
+        assert!(!allow.is_node_allowed("another_node"));
+
         let deny: Allowance = serde_json::from_str(
             r#"{
                 "deny": {
@@ -793,7 +828,8 @@ mod tests {
                     "subscribers": [],
                     "service_servers": [".*"],
                     "action_servers": [".*/rotate_absolute"],
-                    "action_clients": [ "" ]
+                    "action_clients": [ "" ],
+                    "nodes": [ "some_node" ]
                 }
             }"#,
         )
@@ -809,6 +845,7 @@ mod tests {
                 service_clients: None,
                 action_servers: Some(_),
                 action_clients: Some(_),
+                nodes: Some(_)
             })
         ));
 
@@ -847,6 +884,9 @@ mod tests {
         assert!(deny.is_action_cli_allowed("/abc/rotate_absolute"));
         assert!(deny.is_action_cli_allowed("/cmd_vel"));
         assert!(deny.is_action_cli_allowed("/some_pseudo_random_name"));
+
+        assert!(!allow.is_node_allowed("some_node"));
+        assert!(allow.is_node_allowed("another_node"));
 
         let invalid = serde_json::from_str::<Allowance>(
             r#"{
